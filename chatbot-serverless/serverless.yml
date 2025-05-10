@@ -1,0 +1,194 @@
+service: aumigo-chatbot
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  profile: ${env:PROFILE}
+  environment:
+    BUCKET_NAME: ${env:S3_BUCKET_NAME}
+    DYNAMODB_TABLE_USERS: ${env:DYNAMODB_TABLE_USERS}
+    DYNAMODB_TABLE_PETS: ${env:DYNAMODB_TABLE_PETS}
+    DYNAMODB_TABLE_REQUEST_ADOPT: ${env:DYNAMODB_TABLE_REQUEST_ADOPT}
+    DYNAMODB_TABLE_LEX_SESSIONS: ${env:DYNAMODB_TABLE_LEX_SESSIONS}
+    BOT_ID: ${env:BOT_ID}
+    BOT_ALIAS_ID: ${env:BOT_ALIAS_ID}
+
+
+  iamRoleStatements: # Permissões IAM
+    - Effect: Allow
+      Action:
+        - s3:GetObject
+        - s3:PutObject
+        - s3:ListBucket
+      Resource:
+        - arn:aws:s3:::${env:S3_BUCKET_NAME}/*
+    - Effect: Allow
+      Action:
+        - rekognition:DetectLabels
+      Resource: "*" # Permissão para usar o Rekognition
+    - Effect: "Allow"
+      Action:
+        - "bedrock:InvokeModel"
+        - "bedrock:InvokeModelWithResponseStream"
+      Resource: "*" # Permissão para usar o bedrock
+    - Effect: "Allow"
+      Action:
+        - "dynamodb:PutItem"
+        - "dynamodb:GetItem"
+        - "dynamodb:Scan"
+        - "dynamodb:Query"
+      Resource: "*" # Permissão para usar o DynamoDB
+    - Effect: Allow
+      Action:
+        - polly:SynthesizeSpeech
+      Resource: "*" # Permissão para usar o Polly
+    - Effect: Allow
+      Action:
+        - lex:RecognizeText
+      Resource: arn:aws:lex:us-east-1:992382769971:bot-alias/${env:BOT_ID}/${env:BOT_ALIAS_ID}
+
+functions:
+  lex_handler:
+    handler: handler.lex_handler
+
+  webhook_handler:
+    handler: handler.webhook_handler
+    events:
+      - http:
+          path: webhook
+          method: post
+          cors: true
+
+  GetPets:
+    handler: handler.apiGetPets
+    events:
+      - http:
+          path: pets
+          method: get
+          cors: true
+
+  PostPets:
+    handler: handler.apiPostPets
+    events:
+      - http:
+          path: pets
+          method: post
+          cors: true
+
+  getAdoptSolicitations:
+    handler: handler.apiGetAdoptSolicitations
+    events:
+      - http:
+          path: adopt-solicitations
+          method: get
+          cors: true
+
+  detect_pet:
+    handler: handler.apiDetectPet
+    events:
+      - http:
+          path: detect-pet
+          method: post
+          cors: true
+
+
+resources:
+  Resources:
+    BucketS3:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${env:S3_BUCKET_NAME}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+    DynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${env:DYNAMODB_TABLE_USERS}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: phone
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        GlobalSecondaryIndexes:
+          - IndexName: PhoneIndex
+            KeySchema:
+              - AttributeName: phone
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    DynamoDBTable2:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${env:DYNAMODB_TABLE_PETS}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: nome
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        GlobalSecondaryIndexes:
+          - IndexName: NameIndex
+            KeySchema:
+              - AttributeName: nome
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    DynamoDBTable3:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${env:DYNAMODB_TABLE_REQUEST_ADOPT}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+
+    DynamoDBTable4:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${env:DYNAMODB_TABLE_LEX_SESSIONS}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+
+    S3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref BucketS3
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action: "s3:GetObject"
+              Resource: "arn:aws:s3:::${env:S3_BUCKET_NAME}/*"
+
+plugins:
+  - serverless-dotenv-plugin
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true 
+    useStaticCache: true 
+    useDownloadCache: true
